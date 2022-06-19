@@ -1,16 +1,16 @@
 name: unit_tests
 
 on:
-  push: # Pushes to all branches
-
+  push:
+  
 permissions:
   contents: read
-
-# Lets prevent multiple workflows flows running unit tests on the same branch.
+  
+# Prevent same workflow to be run in parallel on a single branch
 concurrency: 
   group: concurrency-group-${{ github.ref_name }}
   cancel-in-progress: true
-
+  
 jobs:
   build:
 
