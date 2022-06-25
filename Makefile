@@ -4,7 +4,7 @@ build-dev:
 	docker build -t gaas-dev -f dockerfiles/Dockerfile.dev .
 
 run-dev:
-	docker run -it gaas-dev
+	docker run -it -v $(shell pwd):/app gaas-dev
 
 clean-dev:
 	# TODO: perhaps forcing is not the best option, but dealing with
