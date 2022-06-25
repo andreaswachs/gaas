@@ -1,4 +1,4 @@
-defmodule Gaas.Gaddag.Tree do
+defmodule Gaas.Gaddag do
   @moduledoc """
   This module (will) provide the functionality of the
   Gaddag data structure.
@@ -10,18 +10,54 @@ defmodule Gaas.Gaddag.Tree do
   defstruct table: nil, root: ""
   @stop "#"
 
-  @spec new :: %Gaas.Gaddag.Tree{root: binary, table: :ets.tid()}
+  @spec new :: %Gaas.Gaddag{root: binary, table: :ets.tid()}
   def new do
     table_name = new_id() |> String.to_atom()
     root = new_id()
     table = :ets.new(table_name, [:set, :private])
     :ets.insert(table, {root, new_node()})
 
-    %Gaas.Gaddag.Tree{table: table, root: root}
+    %Gaas.Gaddag{table: table, root: root}
   end
 
-  @spec insert(%Gaas.Gaddag.Tree{}, String.t()) :: :ok | {:error, String.t()}
+  @spec insert(%Gaas.Gaddag{}, String.t()) :: :ok | {:error, String.t()}
   def insert(gaddag, word) do
+    case is_valid_word?(word) do
+      true -> insert_and_validate(gaddag, word)
+      false -> {:error, "invalid word"}
+    end
+  end
+
+  @spec lookup(%Gaas.Gaddag{}, String.t()) :: :ok | :notfound
+  def lookup(gaddag, word) do
+    do_lookup(gaddag, gaddag.root, String.graphemes(word) ++ [@stop])
+  end
+
+  @spec step(%Gaas.Gaddag{}, String.t(), String.t()) :: {:completes_word | :incomplete | :error, String.t()}
+  def step(gaddag, node, grapheme) do
+    case :ets.lookup(gaddag.table, node) do
+      [{_, map}] ->
+        case Map.get(map, grapheme, nil) do
+          nil -> {:error, "invalid grapheme"}
+          next_node ->
+            case :ets.lookup(gaddag.table, next_node) do
+              [{_, next_map}] ->
+                case Map.get(next_map, "is_word", false) do
+                  true -> {:completes_word, next_node}
+                  false -> {:incomplete, next_node}
+                end
+              [] -> {:incomplete, next_node} # not sure about this
+            end
+        end
+      [] -> {:error, "invalid node"}
+    end
+  end
+
+  #
+  # Private
+  #
+
+  defp insert_and_validate(gaddag, word) do
     letters = String.graphemes(word)
     results =
       for permuted_letters <- permutate_letters(letters) do
@@ -34,23 +70,9 @@ defmodule Gaas.Gaddag.Tree do
     end
   end
 
-  defp validate_results(:ok), do: true
-  defp validate_results(_), do: false
-
-  defp validate_results_inverse(result), do: validate_results(result) |> not()
-
-  @spec lookup(%Gaas.Gaddag.Tree{}, String.t()) :: :ok | :notfound
-  def lookup(gaddag, word) do
-    do_lookup(gaddag, gaddag.root, String.graphemes(word))
-  end
-
-  #
-  # Private
-  #
-
   defp do_insert(gaddag, node, []) do
     case :ets.lookup(gaddag.table, node) do
-      [{^node, map}] ->
+      [{_, map}] ->
         :ets.insert(gaddag.table, {node, %{map | "is_word" => true}})
         :ok
       [] -> {:error, "Disconnected Gaddag. Last letter to insert reached."}
@@ -58,6 +80,7 @@ defmodule Gaas.Gaddag.Tree do
   end
 
   defp do_insert(gaddag, node, _word = [letter | letters]) do
+
     case :ets.lookup(gaddag.table, node) do
       [{_, map}] ->
         next_node = determine_next_node(gaddag, map, letter)
@@ -71,7 +94,7 @@ defmodule Gaas.Gaddag.Tree do
   defp do_lookup(gaddag, node, []) do
     # if is_word is true on this node, return :ok, else {:}
     case :ets.lookup(gaddag.table, node) do
-      [{^node, map}] ->
+      [{_, map}] ->
         case Map.get(map, "is_word", false) do
           true -> :ok
           false -> :notfound
@@ -126,4 +149,13 @@ defmodule Gaas.Gaddag.Tree do
       before_stop ++ after_stop
     end
   end
+
+  defp is_valid_word?(nil), do: false
+  defp is_valid_word?(word) do
+    Unicode.alphabetic?(word)
+  end
+
+  defp validate_results(:ok), do: true
+  defp validate_results(_), do: false
+  defp validate_results_inverse(result), do: not(validate_results(result))
 end
