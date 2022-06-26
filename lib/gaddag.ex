@@ -1,10 +1,19 @@
 defmodule Gaas.Gaddag do
   @moduledoc """
-  This module (will) provide the functionality of the
-  Gaddag data structure.
+  This module provide the functionality of the Gaddag data structure.
 
   Some assumptions being made by the module is that it will store
   any word, but the pound sign '#' is reserved as a special character.
+
+
+  This module creates Gaddags by help of the Erlang Term Storage (ETS).
+  The Gaddag structures stored sort of like adjacency lists, which some
+  important differences.
+
+  The adjacency list likeness stems from the fact that each node in the Gaddag
+  is a key-value pair stored in the ETS, where the key is a (hopefully) unique
+  key and the value is a map with keys of letters going to the next nodes if
+  defined, and the key "is_word" which defaults to false.
   """
 
   defstruct table: nil, root: ""
@@ -14,7 +23,7 @@ defmodule Gaas.Gaddag do
   def new do
     table_name = new_id() |> String.to_atom()
     root = new_id()
-    table = :ets.new(table_name, [:set, :private])
+    table = :ets.new(table_name, [:set, :public]) # I'm not sure public is right but lets see
     :ets.insert(table, {root, new_node()})
 
     %Gaas.Gaddag{table: table, root: root}
@@ -30,7 +39,10 @@ defmodule Gaas.Gaddag do
 
   @spec lookup(%Gaas.Gaddag{}, String.t()) :: :ok | :notfound
   def lookup(gaddag, word) do
-    do_lookup(gaddag, gaddag.root, String.graphemes(word) ++ [@stop])
+    word_prepped =
+      (word |> String.graphemes() |> Enum.reverse()) \
+      ++ [@stop]
+    do_lookup(gaddag, gaddag.root, word_prepped)
   end
 
   @spec step(%Gaas.Gaddag{}, String.t(), String.t()) :: {:completes_word | :incomplete | :error, String.t()}
@@ -80,7 +92,6 @@ defmodule Gaas.Gaddag do
   end
 
   defp do_insert(gaddag, node, _word = [letter | letters]) do
-
     case :ets.lookup(gaddag.table, node) do
       [{_, map}] ->
         next_node = determine_next_node(gaddag, map, letter)
@@ -92,7 +103,6 @@ defmodule Gaas.Gaddag do
   end
 
   defp do_lookup(gaddag, node, []) do
-    # if is_word is true on this node, return :ok, else {:}
     case :ets.lookup(gaddag.table, node) do
       [{_, map}] ->
         case Map.get(map, "is_word", false) do

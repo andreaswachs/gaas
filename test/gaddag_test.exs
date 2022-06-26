@@ -3,7 +3,6 @@ defmodule Gaas.GaddagTest do
 
   alias Gaas.Gaddag
 
-
   @tag :gaddag
   describe "insert word \"bob\"" do
     setup do
@@ -23,10 +22,6 @@ defmodule Gaas.GaddagTest do
 
     test "does not lookup word \"bobb\"", %{gaddag: gaddag} do
       assert :notfound == Gaddag.lookup(gaddag, "bobb")
-    end
-
-    test "test", %{gaddag: gaddag} do
-      assert :ok = Gaddag.lookup(gaddag, "b#ob")
     end
   end
 
@@ -50,6 +45,28 @@ defmodule Gaas.GaddagTest do
     test "inserting string only with whitepace", %{gaddag: gaddag} do
       assert {:error, _} = Gaddag.insert(gaddag, " ")
     end
+  end
 
+  @tag :gaddag
+  describe "inserting 20k words" do
+    setup do
+      gaddag = Gaddag.new()
+
+      File.stream!("data/English20kWords.txt")
+      |> Enum.map(&String.trim/1)
+      |> Enum.each(fn word ->
+            Gaddag.insert(gaddag, word)
+        end)
+
+      %{gaddag: gaddag}
+    end
+
+    test "can look up all 20k words again", %{gaddag: gaddag} do
+      File.stream!("data/English20kWords.txt")
+      |> Enum.each(fn word ->
+            sanitized_word = String.trim(word)
+            assert :ok = Gaddag.lookup(gaddag, sanitized_word)
+          end)
+    end
   end
 end
