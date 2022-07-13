@@ -4,29 +4,20 @@ defmodule Gaas.Gaddag do
 
   Some assumptions being made by the module is that it will store
   any word, but the pound sign '#' is reserved as a special character.
-
-
-  This module creates Gaddags by help of the Erlang Term Storage (ETS).
-  The Gaddag structures stored sort of like adjacency lists, which some
-  important differences.
-
-  The adjacency list likeness stems from the fact that each node in the Gaddag
-  is a key-value pair stored in the ETS, where the key is a (hopefully) unique
-  key and the value is a map with keys of letters going to the next nodes if
-  defined, and the key "is_word" which defaults to false.
   """
 
-  defstruct table: nil, root: ""
+  defstruct store: %Gaas.NodeStore{}, root: ""
+
+  alias Gaas.NodeStore
+
   @stop "#"
 
-  @spec new :: %Gaas.Gaddag{root: binary, table: :ets.tid()}
+  @spec new :: %Gaas.Gaddag{}
   def new do
-    table_name = new_id() |> String.to_atom()
-    root = new_id()
-    table = :ets.new(table_name, [:set, :public]) # I'm not sure public is right but lets see
-    :ets.insert(table, {root, new_node()})
+    store = NodeStore.new()
+    root = NodeStore.insert_new(store, new_node())
 
-    %Gaas.Gaddag{table: table, root: root}
+    %Gaas.Gaddag{store: store, root: root}
   end
 
   @spec insert(%Gaas.Gaddag{}, String.t()) :: :ok | {:error, String.t()}
@@ -47,21 +38,21 @@ defmodule Gaas.Gaddag do
 
   @spec step(%Gaas.Gaddag{}, String.t(), String.t()) :: {:completes_word | :incomplete | :error, String.t()}
   def step(gaddag, node, grapheme) do
-    case :ets.lookup(gaddag.table, node) do
-      [{_, map}] ->
+    case NodeStore.lookup(gaddag.store, node) do
+      :error      -> {:error, "invalid grapheme"}
+      {:ok, map } ->
         case Map.get(map, grapheme, nil) do
           nil -> {:error, "invalid grapheme"}
           next_node ->
-            case :ets.lookup(gaddag.table, next_node) do
-              [{_, next_map}] ->
+            case NodeStore.lookup(gaddag.store, next_node) do
+              :error -> {:incomplete, next_node}
+              {:ok, next_map} ->
                 case Map.get(next_map, "is_word", false) do
                   true -> {:completes_word, next_node}
                   false -> {:incomplete, next_node}
                 end
-              [] -> {:incomplete, next_node} # not sure about this
             end
         end
-      [] -> {:error, "invalid node"}
     end
   end
 
@@ -83,44 +74,40 @@ defmodule Gaas.Gaddag do
   end
 
   defp do_insert(gaddag, node, []) do
-    case :ets.lookup(gaddag.table, node) do
-      [{_, map}] ->
-        :ets.insert(gaddag.table, {node, %{map | "is_word" => true}})
-        :ok
-      [] -> {:error, "Disconnected Gaddag. Last letter to insert reached."}
+    case NodeStore.lookup(gaddag.store, node) do
+      :error     -> :ok # The algorithm should prevent issue so we ignore it
+      {:ok, map} -> NodeStore.insert(gaddag.store, node, %{map | "is_word" => true}); :ok
     end
   end
 
   defp do_insert(gaddag, node, _word = [letter | letters]) do
-    case :ets.lookup(gaddag.table, node) do
-      [{_, map}] ->
-        next_node = determine_next_node(gaddag, map, letter)
-        new_map = Map.put(map, letter, next_node)
-        :ets.insert(gaddag.table, {node, new_map})
-        do_insert(gaddag, next_node, letters)
-      [] -> {:error, "The Gaddag has been disconnected from itself!"}
+    case NodeStore.lookup(gaddag.store, node) do
+      :error -> :ok # This should never happen so we ignore it
+      {:ok, map} ->
+        determine_next_node(gaddag, map, letter)
+        |> then(&do_insert(gaddag, &1, letters))
     end
   end
 
   defp do_lookup(gaddag, node, []) do
-    case :ets.lookup(gaddag.table, node) do
-      [{_, map}] ->
-        case Map.get(map, "is_word", false) do
+    case NodeStore.lookup(gaddag.store, node) do
+      :error -> :notfound
+      {:ok, map} ->
+         case Map.get(map, "is_word", false) do
           true -> :ok
           false -> :notfound
         end
-      _ -> :notfound
     end
   end
 
   defp do_lookup(gaddag, node, [letter | letters]) do
-    case :ets.lookup(gaddag.table, node) do
-      [{_, map}] ->
+    case NodeStore.lookup(gaddag.store, node) do
+      :error -> :notfound
+      {:ok, map} ->
         case Map.get(map, letter) do
           nil -> :notfound
           next_node -> do_lookup(gaddag, next_node, letters)
         end
-      _ -> :notfound
     end
   end
 
@@ -132,17 +119,11 @@ defmodule Gaas.Gaddag do
   end
 
   defp create_new_node(gaddag) do
-    id = new_id()
-    :ets.insert(gaddag.table, {id, new_node()})
-    id
+    NodeStore.insert_new(gaddag.store, new_node())
   end
 
   defp new_node() do
     %{"is_word" => false}
-  end
-
-  defp new_id do
-    :crypto.strong_rand_bytes(20) |> Base.encode64()
   end
 
   defp permutate_letters(letters) do
